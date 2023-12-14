@@ -194,8 +194,8 @@ fn main() {
         .skip(1)
         .next()
         .expect("Expected input file path, ie input.txt");
-    let input = fs::read(path).unwrap();
     let start = Instant::now();
+    let input = fs::read(path).unwrap();
 
     thread_local! {
         static DP: RefCell<Vec<u64>> = RefCell::new(vec![]);
