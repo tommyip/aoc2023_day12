@@ -1,6 +1,6 @@
 use std::{
     env, fs, mem,
-    ops::{BitAnd, Index, IndexMut},
+    ops::{Index, IndexMut},
     time::Instant,
 };
 
@@ -28,10 +28,10 @@ struct RepeatedRecords<'a, const N: usize>(&'a [Record]);
 struct RepeatedGroups<'a, const N: usize>(&'a [UGroup]);
 
 #[derive(Debug)]
-struct DP {
+struct DP<'a> {
     n_records: usize,
     n_groups: usize,
-    values: Vec<u64>,
+    values: &'a mut Vec<u64>,
 }
 
 struct Row<'a> {
@@ -39,13 +39,13 @@ struct Row<'a> {
     groups: Groups,
 }
 
-fn solve<const N: usize>(row: &Row<'_>) -> u64 {
+fn solve<const N: usize>(row: &Row<'_>, dp_buf: &mut Vec<u64>) -> u64 {
     let records = RepeatedRecords::<'_, N>(row.records);
     let groups = RepeatedGroups::<'_, N>(&row.groups);
     let nr = records.len();
     let ng = groups.len();
 
-    let mut dp = DP::new(nr + 1, ng + 1);
+    let mut dp = DP::new(nr + 1, ng + 1, dp_buf);
 
     // Base cases
 
@@ -70,14 +70,11 @@ fn solve<const N: usize>(row: &Row<'_>) -> u64 {
                     let group_len = groups[gi] as usize;
                     // Try committing group to all `#`
                     let damaged_arragements = if ri + group_len <= nr {
-                        let can_commit = (ri..ri + group_len)
-                            .map(|i| records[i])
-                            .all(|r| r == Damaged || r == Unknown)
-                            .bitand(
-                                ri + group_len == nr
-                                    || records[ri + group_len] == Operational
-                                    || records[ri + group_len] == Unknown,
-                            );
+                        let can_commit = (ri + group_len == nr
+                            || records[ri + group_len] != Damaged)
+                            && (ri..ri + group_len)
+                                .map(|i| records[i])
+                                .all(|r| r != Operational);
                         if can_commit {
                             // Possible, same arragemnts as tail and next group
                             dp[(gi + 1, ri + group_len + 1)]
@@ -160,17 +157,18 @@ impl<'a, const N: usize> Index<usize> for RepeatedGroups<'a, N> {
     }
 }
 
-impl DP {
-    fn new(n_records: usize, n_groups: usize) -> Self {
+impl<'a> DP<'a> {
+    fn new(n_records: usize, n_groups: usize, buf: &'a mut Vec<u64>) -> Self {
+        buf.resize(n_groups * n_records, 0);
         Self {
             n_records,
             n_groups,
-            values: vec![0; n_records * n_groups],
+            values: buf,
         }
     }
 }
 
-impl Index<(usize, usize)> for DP {
+impl Index<(usize, usize)> for DP<'_> {
     type Output = u64;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
@@ -185,7 +183,7 @@ impl Index<(usize, usize)> for DP {
     }
 }
 
-impl IndexMut<(usize, usize)> for DP {
+impl IndexMut<(usize, usize)> for DP<'_> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         let (group_idx, record_idx) = index;
         &mut self.values[self.n_records * group_idx + record_idx]
@@ -207,9 +205,10 @@ fn main() {
 
     let mut part1 = 0;
     let mut part2 = 0;
+    let mut dp_buf = vec![];
     for row in parse(&input) {
-        part1 += solve::<1>(&row);
-        part2 += solve::<5>(&row);
+        part1 += solve::<1>(&row, &mut dp_buf);
+        part2 += solve::<5>(&row, &mut dp_buf);
     }
 
     let elapsed = start.elapsed().as_micros();
@@ -229,21 +228,53 @@ mod tests {
 
     #[test]
     fn test_part1() {
-        assert_eq!(1, solve::<1>(&parse_one("???.### 1,1,3\n")));
-        assert_eq!(4, solve::<1>(&parse_one(".??..??...?##. 1,1,3\n")));
-        assert_eq!(1, solve::<1>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n")));
-        assert_eq!(1, solve::<1>(&parse_one("????.#...#... 4,1,1\n")));
-        assert_eq!(4, solve::<1>(&parse_one("????.######..#####. 1,6,5\n")));
-        assert_eq!(10, solve::<1>(&parse_one("?###???????? 3,2,1\n")));
+        let mut dp_buf = vec![];
+        assert_eq!(1, solve::<1>(&parse_one("???.### 1,1,3\n"), &mut dp_buf));
+        assert_eq!(
+            4,
+            solve::<1>(&parse_one(".??..??...?##. 1,1,3\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            1,
+            solve::<1>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            1,
+            solve::<1>(&parse_one("????.#...#... 4,1,1\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            4,
+            solve::<1>(&parse_one("????.######..#####. 1,6,5\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            10,
+            solve::<1>(&parse_one("?###???????? 3,2,1\n"), &mut dp_buf)
+        );
     }
 
     #[test]
     fn test_part2() {
-        assert_eq!(1, solve::<5>(&parse_one("???.### 1,1,3\n")));
-        assert_eq!(16384, solve::<5>(&parse_one(".??..??...?##. 1,1,3\n")));
-        assert_eq!(1, solve::<5>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n")));
-        assert_eq!(16, solve::<5>(&parse_one("????.#...#... 4,1,1\n")));
-        assert_eq!(2500, solve::<5>(&parse_one("????.######..#####. 1,6,5\n")));
-        assert_eq!(506250, solve::<5>(&parse_one("?###???????? 3,2,1\n")));
+        let mut dp_buf = vec![];
+        assert_eq!(1, solve::<5>(&parse_one("???.### 1,1,3\n"), &mut dp_buf));
+        assert_eq!(
+            16384,
+            solve::<5>(&parse_one(".??..??...?##. 1,1,3\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            1,
+            solve::<5>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            16,
+            solve::<5>(&parse_one("????.#...#... 4,1,1\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            2500,
+            solve::<5>(&parse_one("????.######..#####. 1,6,5\n"), &mut dp_buf)
+        );
+        assert_eq!(
+            506250,
+            solve::<5>(&parse_one("?###???????? 3,2,1\n"), &mut dp_buf)
+        );
     }
 }
