@@ -70,11 +70,8 @@ fn solve<const N: usize>(row: &Row<'_>, dp_buf: &mut Vec<u64>) -> u64 {
                     let group_len = groups[gi] as usize;
                     // Try committing group to all `#`
                     let damaged_arragements = if ri + group_len <= nr {
-                        let can_commit = (ri + group_len == nr
-                            || records[ri + group_len] != Damaged)
-                            && (ri..ri + group_len)
-                                .map(|i| records[i])
-                                .all(|r| r != Operational);
+                        let can_commit = (ri + group_len == nr || records[ri + group_len] != Damaged)
+                            && (ri..ri + group_len).map(|i| records[i]).all(|r| r != Operational);
                         if can_commit {
                             // Possible, same arragemnts as tail and next group
                             dp[(gi + 1, ri + group_len + 1)]
@@ -191,10 +188,7 @@ impl IndexMut<(usize, usize)> for DP<'_> {
 }
 
 fn main() {
-    debug_assert_eq!(
-        mem::size_of::<&[u8]>(),
-        mem::size_of::<RepeatedRecords<'_, 5>>()
-    );
+    debug_assert_eq!(mem::size_of::<&[u8]>(), mem::size_of::<RepeatedRecords<'_, 5>>());
 
     let path = env::args()
         .skip(1)
@@ -230,51 +224,21 @@ mod tests {
     fn test_part1() {
         let mut dp_buf = vec![];
         assert_eq!(1, solve::<1>(&parse_one("???.### 1,1,3\n"), &mut dp_buf));
-        assert_eq!(
-            4,
-            solve::<1>(&parse_one(".??..??...?##. 1,1,3\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            1,
-            solve::<1>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            1,
-            solve::<1>(&parse_one("????.#...#... 4,1,1\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            4,
-            solve::<1>(&parse_one("????.######..#####. 1,6,5\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            10,
-            solve::<1>(&parse_one("?###???????? 3,2,1\n"), &mut dp_buf)
-        );
+        assert_eq!(4, solve::<1>(&parse_one(".??..??...?##. 1,1,3\n"), &mut dp_buf));
+        assert_eq!(1, solve::<1>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n"), &mut dp_buf));
+        assert_eq!(1, solve::<1>(&parse_one("????.#...#... 4,1,1\n"), &mut dp_buf));
+        assert_eq!(4, solve::<1>(&parse_one("????.######..#####. 1,6,5\n"), &mut dp_buf));
+        assert_eq!(10, solve::<1>(&parse_one("?###???????? 3,2,1\n"), &mut dp_buf));
     }
 
     #[test]
     fn test_part2() {
         let mut dp_buf = vec![];
         assert_eq!(1, solve::<5>(&parse_one("???.### 1,1,3\n"), &mut dp_buf));
-        assert_eq!(
-            16384,
-            solve::<5>(&parse_one(".??..??...?##. 1,1,3\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            1,
-            solve::<5>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            16,
-            solve::<5>(&parse_one("????.#...#... 4,1,1\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            2500,
-            solve::<5>(&parse_one("????.######..#####. 1,6,5\n"), &mut dp_buf)
-        );
-        assert_eq!(
-            506250,
-            solve::<5>(&parse_one("?###???????? 3,2,1\n"), &mut dp_buf)
-        );
+        assert_eq!(16384, solve::<5>(&parse_one(".??..??...?##. 1,1,3\n"), &mut dp_buf));
+        assert_eq!(1, solve::<5>(&parse_one("?#?#?#?#?#?#?#? 1,3,1,6\n"), &mut dp_buf));
+        assert_eq!(16, solve::<5>(&parse_one("????.#...#... 4,1,1\n"), &mut dp_buf));
+        assert_eq!(2500, solve::<5>(&parse_one("????.######..#####. 1,6,5\n"), &mut dp_buf));
+        assert_eq!(506250, solve::<5>(&parse_one("?###???????? 3,2,1\n"), &mut dp_buf));
     }
 }
