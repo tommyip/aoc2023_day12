@@ -25,7 +25,7 @@ type Groups = StackVec6<UGroup>;
 /// Like a `&[Record]` but can be repeated and indexed
 /// with no runtime overhead.
 struct RepeatedRecords<'a, const N: usize>(&'a [Record]);
-struct RepeatedGroups<'a, const N: usize>(&'a Groups);
+struct RepeatedGroups<'a, const N: usize>(&'a [UGroup]);
 
 #[derive(Debug)]
 struct DP {
@@ -70,18 +70,20 @@ fn solve<const N: usize>(row: &Row<'_>) -> u64 {
                     let group_len = groups[gi] as usize;
                     // Try committing group to all `#`
                     let damaged_arragements = if ri + group_len <= nr {
-                        (ri..ri + group_len)
+                        let can_commit = (ri..ri + group_len)
                             .map(|i| records[i])
                             .all(|r| r == Damaged || r == Unknown)
                             .bitand(
                                 ri + group_len == nr
                                     || records[ri + group_len] == Operational
                                     || records[ri + group_len] == Unknown,
-                            )
+                            );
+                        if can_commit {
                             // Possible, same arragemnts as tail and next group
-                            .then(|| dp[(gi + 1, ri + group_len + 1)])
-                            // Not possible
-                            .unwrap_or(0)
+                            dp[(gi + 1, ri + group_len + 1)]
+                        } else {
+                            0
+                        }
                     } else {
                         0
                     };
