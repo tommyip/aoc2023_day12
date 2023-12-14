@@ -1,4 +1,6 @@
+use rayon::prelude::*;
 use std::{
+    cell::RefCell,
     env, fs, mem,
     ops::{Index, IndexMut},
     time::Instant,
@@ -188,8 +190,6 @@ impl IndexMut<(usize, usize)> for DP<'_> {
 }
 
 fn main() {
-    debug_assert_eq!(mem::size_of::<&[u8]>(), mem::size_of::<RepeatedRecords<'_, 5>>());
-
     let path = env::args()
         .skip(1)
         .next()
@@ -197,13 +197,20 @@ fn main() {
     let input = fs::read(path).unwrap();
     let start = Instant::now();
 
-    let mut part1 = 0;
-    let mut part2 = 0;
-    let mut dp_buf = vec![];
-    for row in parse(&input) {
-        part1 += solve::<1>(&row, &mut dp_buf);
-        part2 += solve::<5>(&row, &mut dp_buf);
+    thread_local! {
+        static DP: RefCell<Vec<u64>> = RefCell::new(vec![]);
     }
+    let (part1, part2) = parse(&input)
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .map(|row| {
+            DP.with_borrow_mut(|dp| {
+                let part1 = solve::<1>(&row, dp);
+                let part2 = solve::<5>(&row, dp);
+                (part1, part2)
+            })
+        })
+        .reduce(|| (0, 0), |(acc_p1, acc_p2), (p1, p2)| (acc_p1 + p1, acc_p2 + p2));
 
     let elapsed = start.elapsed().as_micros();
 
