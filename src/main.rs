@@ -190,27 +190,41 @@ impl IndexMut<(usize, usize)> for DP<'_> {
 }
 
 fn main() {
-    let path = env::args()
-        .skip(1)
-        .next()
-        .expect("Expected input file path, ie input.txt");
+    let args = env::args().skip(1).take(2).collect::<Vec<_>>();
+    let path = args.get(0).expect("Expected input file path, ie input.txt");
+    let parallel = args.get(1).map_or(true, |flag| match flag.as_str() {
+        "parallel" => true,
+        "serial" => false,
+        _ => panic!("Expected the optional second argument to either be `parallel` or `serial`"),
+    });
     let start = Instant::now();
     let input = fs::read(path).unwrap();
 
-    thread_local! {
-        static DP: RefCell<Vec<u64>> = RefCell::new(vec![]);
-    }
-    let (part1, part2) = parse(&input)
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .map(|row| {
-            DP.with_borrow_mut(|dp| {
-                let part1 = solve::<1>(&row, dp);
-                let part2 = solve::<5>(&row, dp);
-                (part1, part2)
+    let (part1, part2) = if parallel {
+        thread_local! {
+            static DP: RefCell<Vec<u64>> = RefCell::new(vec![]);
+        }
+        parse(&input)
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .map(|row| {
+                DP.with_borrow_mut(|dp| {
+                    let part1 = solve::<1>(&row, dp);
+                    let part2 = solve::<5>(&row, dp);
+                    (part1, part2)
+                })
             })
-        })
-        .reduce(|| (0, 0), |(acc_p1, acc_p2), (p1, p2)| (acc_p1 + p1, acc_p2 + p2));
+            .reduce(|| (0, 0), |(acc_p1, acc_p2), (p1, p2)| (acc_p1 + p1, acc_p2 + p2))
+    } else {
+        let mut dp = vec![];
+        let mut part1 = 0;
+        let mut part2 = 0;
+        for row in parse(&input) {
+            part1 += solve::<1>(&row, &mut dp);
+            part2 += solve::<5>(&row, &mut dp);
+        }
+        (part1, part2)
+    };
 
     let elapsed = start.elapsed().as_micros();
 
