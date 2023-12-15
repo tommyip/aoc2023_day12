@@ -11,6 +11,7 @@ use self::Record::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum Record {
+    #[allow(unused)]
     Operational = b'.',
     Damaged = b'#',
     Unknown = b'?',
@@ -47,7 +48,7 @@ fn solve<const N: usize>(row: &Row<'_>, dp_buf: &mut Vec<u64>) -> u64 {
     let nr = records.len();
     let ng = groups.len();
 
-    let mut dp = DP::new(nr + 1, ng + 1, dp_buf);
+    let mut dp = DP::new(nr, ng, dp_buf);
 
     // Base cases
 
@@ -63,6 +64,17 @@ fn solve<const N: usize>(row: &Row<'_>, dp_buf: &mut Vec<u64>) -> u64 {
         dp[(i, nr)] = 0;
     }
 
+    // Pre-calculate the maximum number of consecutively damaged or
+    // unknown (to be set as damaged) springs reachable from each record.
+    let mut damage_count = 0;
+    for (i, lookahead) in dp.damage_lookaheads_mut().into_iter().enumerate().rev() {
+        match records[i] {
+            Damaged | Unknown => damage_count += 1,
+            Operational => damage_count = 0,
+        }
+        *lookahead = damage_count;
+    }
+
     for gi in (0..ng).rev() {
         for ri in (0..nr).rev() {
             dp[(gi, ri)] = match records[ri] {
@@ -70,19 +82,16 @@ fn solve<const N: usize>(row: &Row<'_>, dp_buf: &mut Vec<u64>) -> u64 {
                 Operational => dp[(gi, ri + 1)],
                 Damaged | Unknown => {
                     let group_len = groups[gi] as usize;
-                    // Try committing group to all `#`
-                    let damaged_arragements = if ri + group_len <= nr {
-                        let can_commit = (ri + group_len == nr || records[ri + group_len] != Damaged)
-                            && (ri..ri + group_len).map(|i| records[i]).all(|r| r != Operational);
-                        if can_commit {
-                            // Possible, same arragemnts as tail and next group
+                    // Try committing group to all `#`s.
+                    // This is possible if the next `group_len` records are all `#` or `?` and the record
+                    // after the group is either a `.`, `?` or EOF.
+                    let damaged_arragements =
+                        if group_len as u64 <= dp.damage_lookaheads()[ri] && records[ri + group_len] != Damaged {
                             dp[(gi + 1, ri + group_len + 1)]
                         } else {
                             0
-                        }
-                    } else {
-                        0
-                    };
+                        };
+
                     if records[ri] == Unknown {
                         // Also try commtting to `.`
                         damaged_arragements + dp[(gi, ri + 1)]
@@ -157,13 +166,26 @@ impl<'a, const N: usize> Index<usize> for RepeatedGroups<'a, N> {
 }
 
 impl<'a> DP<'a> {
+    /// DP arr is not zero-ed out! Make sure cells are written before read.
     fn new(n_records: usize, n_groups: usize, buf: &'a mut Vec<u64>) -> Self {
-        buf.resize(n_groups * n_records, 0);
+        let n_damage_lookaheads = n_records;
+        let n_records = n_records + 1;
+        let n_groups = n_groups + 1;
+        // Add an additional n_records to store the damage lookahead cache
+        buf.resize(n_records * n_groups + n_damage_lookaheads, 0);
         Self {
             n_records,
             n_groups,
             values: buf,
         }
+    }
+
+    fn damage_lookaheads(&self) -> &[u64] {
+        &self.values[self.n_records * self.n_groups..]
+    }
+
+    fn damage_lookaheads_mut(&mut self) -> &mut [u64] {
+        &mut self.values[self.n_records * self.n_groups..]
     }
 }
 
