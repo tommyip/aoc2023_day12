@@ -1,5 +1,4 @@
 use rayon::prelude::*;
-use stack_vec::StackVec8;
 use std::{
     cell::RefCell,
     mem,
@@ -29,9 +28,12 @@ struct DP<'a> {
 
 pub struct Row<'a> {
     records: &'a [Record],
-    groups: StackVec8<UGroup>,
+    groups: &'a [UGroup],
+    repeated_records: &'a [Record],
+    repeated_groups: &'a [UGroup],
 }
 
+/// Solve Day 12 using bottom up dynamic programming
 fn solve(records: &[Record], groups: &[UGroup], dp_buf: &mut Vec<u64>) -> u64 {
     let nr = records.len();
     let ng = groups.len();
@@ -94,20 +96,8 @@ fn solve(records: &[Record], groups: &[UGroup], dp_buf: &mut Vec<u64>) -> u64 {
     return dp[(0, 0)];
 }
 
-pub fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row<'a>> {
-    input
-        .strip_suffix(&[b'\n'])
-        .unwrap()
-        .split(|&byte| byte == b'\n')
-        .map(|line| {
-            let space_idx = line.iter().rposition(|&c| c == b' ').unwrap();
-            let records: &[Record] = unsafe { mem::transmute(&line[..space_idx]) };
-            let groups = line[space_idx + 1..]
-                .split(|&c| c == b',')
-                .map(|digits| unsafe { str::from_utf8_unchecked(digits) }.parse::<UGroup>().unwrap())
-                .collect::<StackVec8<_>>();
-            Row { records, groups }
-        })
+pub fn parse_lines<'a>(input: &'a [u8]) -> impl Iterator<Item = &'a [u8]> {
+    input.strip_suffix(&[b'\n']).unwrap().split(|&byte| byte == b'\n')
 }
 
 pub fn day12_parallel(input: &[u8]) -> (u64, u64) {
@@ -117,21 +107,19 @@ pub fn day12_parallel(input: &[u8]) -> (u64, u64) {
         static REPEATED_RECORDS: RefCell<Vec<Record>> = RefCell::new(vec![]);
         static REPEATED_GROUPS: RefCell<Vec<UGroup>> = RefCell::new(vec![]);
     }
-    parse(&input)
+    parse_lines(&input)
         .collect::<Vec<_>>()
         .into_par_iter()
-        .map(|row| {
+        .map(|line| {
             DP.with_borrow_mut(|dp| {
-                let (part1_records, part1_groups) = row.part1();
-                let part1 = solve(part1_records, &part1_groups, dp);
-
-                let part2 = REPEATED_RECORDS.with_borrow_mut(|repeated_records| {
+                REPEATED_RECORDS.with_borrow_mut(|repeated_records| {
                     REPEATED_GROUPS.with_borrow_mut(|repeated_groups| {
-                        let (part2_records, part2_groups) = row.part2(repeated_records, repeated_groups);
-                        solve(&part2_records, &part2_groups, dp)
+                        let row = Row::parse(line, repeated_records, repeated_groups);
+                        let part1 = solve(row.records, row.groups, dp);
+                        let part2 = solve(row.repeated_records, row.repeated_groups, dp);
+                        (part1, part2)
                     })
-                });
-                (part1, part2)
+                })
             })
         })
         .reduce(|| (0, 0), |(acc_p1, acc_p2), (p1, p2)| (acc_p1 + p1, acc_p2 + p2))
@@ -143,39 +131,46 @@ pub fn day12_serial(input: &[u8]) -> (u64, u64) {
     let mut groups_buf = vec![];
     let mut part1 = 0;
     let mut part2 = 0;
-    for row in parse(&input) {
-        let (part1_records, part1_groups) = row.part1();
-        part1 += solve(part1_records, &part1_groups, &mut dp);
-        let (part2_records, part2_groups) = row.part2(&mut records_buf, &mut groups_buf);
-        part2 += solve(&part2_records, &part2_groups, &mut dp)
+    for line in parse_lines(&input) {
+        let row = Row::parse(line, &mut records_buf, &mut groups_buf);
+        part1 += solve(row.records, row.groups, &mut dp);
+        part2 += solve(row.repeated_records, row.repeated_groups, &mut dp);
     }
     (part1, part2)
 }
 
 impl<'a> Row<'a> {
-    fn part1(&self) -> (&[Record], &[UGroup]) {
-        (&self.records, &self.groups)
-    }
+    pub fn parse(line: &'a [u8], repeated_records: &'a mut Vec<Record>, repeated_groups: &'a mut Vec<UGroup>) -> Self {
+        let space_idx = line.iter().rposition(|&c| c == b' ').unwrap();
+        let records: &[Record] = unsafe { mem::transmute(&line[..space_idx]) };
 
-    pub fn part2<'b>(
-        &self,
-        records_buf: &'b mut Vec<Record>,
-        groups_buf: &'b mut Vec<UGroup>,
-    ) -> (&'b [Record], &'b [UGroup]) {
-        let chunk_len = self.records.len() + 1;
-        records_buf.resize(chunk_len * 5 - 1, Unknown);
+        let chunk_len = records.len() + 1;
+        repeated_records.resize(chunk_len * 5 - 1, Unknown);
         for i in 0..5 {
-            records_buf[chunk_len * i..chunk_len * i + self.records.len()].copy_from_slice(self.records);
+            repeated_records[chunk_len * i..chunk_len * i + records.len()].copy_from_slice(records);
             if i != 4 {
-                records_buf[chunk_len * i + self.records.len()] = Unknown;
+                repeated_records[chunk_len * i + records.len()] = Unknown;
             }
         }
-        groups_buf.resize(self.groups.len() * 5, 0);
-        for i in 0..5 {
-            groups_buf[self.groups.len() * i..self.groups.len() * i + self.groups.len()].copy_from_slice(&self.groups);
+
+        let groups = line[space_idx + 1..]
+            .split(|&c| c == b',')
+            .map(|digits| unsafe { str::from_utf8_unchecked(digits) }.parse::<UGroup>().unwrap());
+        repeated_groups.clear();
+        repeated_groups.extend(groups);
+        let n_groups = repeated_groups.len();
+
+        repeated_groups.resize(n_groups * 5, 0);
+        for i in 1..5 {
+            repeated_groups.copy_within(..n_groups, i * n_groups);
         }
 
-        (records_buf, groups_buf)
+        Self {
+            records: &repeated_records[..records.len()],
+            groups: &repeated_groups[..n_groups],
+            repeated_records: &repeated_records[..],
+            repeated_groups: &repeated_groups[..],
+        }
     }
 }
 
@@ -231,8 +226,9 @@ mod tests {
 
     fn solve_one(input: &str) -> u64 {
         let mut dp_buf = vec![];
-        let row = parse(input.as_bytes()).next().unwrap();
-        let (records, groups) = row.part1();
+        let mut repeated_records = vec![];
+        let mut repeated_groups = vec![];
+        let Row { records, groups, .. } = Row::parse(input.as_bytes(), &mut repeated_records, &mut repeated_groups);
         solve(records, &groups, &mut dp_buf)
     }
 
@@ -240,28 +236,31 @@ mod tests {
         let mut dp_buf = vec![];
         let mut repeated_records = vec![];
         let mut repeated_groups = vec![];
-        let row = parse(input.as_bytes()).next().unwrap();
-        let (records, groups) = row.part2(&mut repeated_records, &mut repeated_groups);
-        solve(&records, &groups, &mut dp_buf)
+        let Row {
+            repeated_records,
+            repeated_groups,
+            ..
+        } = Row::parse(input.as_bytes(), &mut repeated_records, &mut repeated_groups);
+        solve(repeated_records, &repeated_groups, &mut dp_buf)
     }
 
     #[test]
     fn test_part1() {
-        assert_eq!(1, solve_one("???.### 1,1,3\n"));
-        assert_eq!(4, solve_one(".??..??...?##. 1,1,3\n"));
-        assert_eq!(1, solve_one("?#?#?#?#?#?#?#? 1,3,1,6\n"));
-        assert_eq!(1, solve_one("????.#...#... 4,1,1\n"));
-        assert_eq!(4, solve_one("????.######..#####. 1,6,5\n"));
-        assert_eq!(10, solve_one("?###???????? 3,2,1\n"));
+        assert_eq!(1, solve_one("???.### 1,1,3"));
+        assert_eq!(4, solve_one(".??..??...?##. 1,1,3"));
+        assert_eq!(1, solve_one("?#?#?#?#?#?#?#? 1,3,1,6"));
+        assert_eq!(1, solve_one("????.#...#... 4,1,1"));
+        assert_eq!(4, solve_one("????.######..#####. 1,6,5"));
+        assert_eq!(10, solve_one("?###???????? 3,2,1"));
     }
 
     #[test]
     fn test_part2() {
-        assert_eq!(1, solve_two("???.### 1,1,3\n"));
-        assert_eq!(16384, solve_two(".??..??...?##. 1,1,3\n"));
-        assert_eq!(1, solve_two("?#?#?#?#?#?#?#? 1,3,1,6\n"));
-        assert_eq!(16, solve_two("????.#...#... 4,1,1\n"));
-        assert_eq!(2500, solve_two("????.######..#####. 1,6,5\n"));
-        assert_eq!(506250, solve_two("?###???????? 3,2,1\n"));
+        assert_eq!(1, solve_two("???.### 1,1,3"));
+        assert_eq!(16384, solve_two(".??..??...?##. 1,1,3"));
+        assert_eq!(1, solve_two("?#?#?#?#?#?#?#? 1,3,1,6"));
+        assert_eq!(16, solve_two("????.#...#... 4,1,1"));
+        assert_eq!(2500, solve_two("????.######..#####. 1,6,5"));
+        assert_eq!(506250, solve_two("?###???????? 3,2,1"));
     }
 }
