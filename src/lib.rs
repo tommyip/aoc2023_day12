@@ -11,7 +11,7 @@ use self::Record::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-enum Record {
+pub enum Record {
     #[allow(unused)]
     Operational = b'.',
     Damaged = b'#',
@@ -27,7 +27,7 @@ struct DP<'a> {
     values: &'a mut Vec<u64>,
 }
 
-struct Row<'a> {
+pub struct Row<'a> {
     records: &'a [Record],
     groups: StackVec8<UGroup>,
 }
@@ -94,7 +94,7 @@ fn solve(records: &[Record], groups: &[UGroup], dp_buf: &mut Vec<u64>) -> u64 {
     return dp[(0, 0)];
 }
 
-fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row<'a>> {
+pub fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row<'a>> {
     input
         .strip_suffix(&[b'\n'])
         .unwrap()
@@ -157,7 +157,7 @@ impl<'a> Row<'a> {
         (&self.records, &self.groups)
     }
 
-    fn part2<'b>(
+    pub fn part2<'b>(
         &self,
         records_buf: &'b mut Vec<Record>,
         groups_buf: &'b mut Vec<UGroup>,
