@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use stack_vec::StackVec8;
 use std::{
     cell::RefCell,
     mem,
@@ -16,11 +17,8 @@ enum Record {
     Unknown = b'?',
 }
 
-// Store spring groups directly on the stack
-// The max number of groups is 6 from the actual input
-stack_vec::stack!(pub type StackVec6 StackVec6IntoIter 6);
+stack_vec::stack!(pub type Groups GroupsIntoIter 30);
 type UGroup = u8;
-type Groups = StackVec6<UGroup>;
 
 #[derive(Debug)]
 struct DP<'a> {
@@ -29,14 +27,14 @@ struct DP<'a> {
     values: &'a mut Vec<u64>,
 }
 
-struct Row<'a> {
-    records: &'a [Record],
-    groups: Groups,
+struct Row {
+    n_records: usize,
+    repeated_records: Vec<Record>,
+    n_groups: usize,
+    repeated_groups: Groups<UGroup>,
 }
 
 fn solve(records: &[Record], groups: &[UGroup], dp_buf: &mut Vec<u64>) -> u64 {
-    // let records = RepeatedRecords::<'_, N>(row.records);
-    // let groups = RepeatedGroups::<'_, N>(&row.groups);
     let nr = records.len();
     let ng = groups.len();
 
@@ -98,7 +96,7 @@ fn solve(records: &[Record], groups: &[UGroup], dp_buf: &mut Vec<u64>) -> u64 {
     return dp[(0, 0)];
 }
 
-fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row<'a>> {
+fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row> + 'a {
     input
         .strip_suffix(&[b'\n'])
         .unwrap()
@@ -116,8 +114,23 @@ fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row<'a>> {
                     })
                     .into()
                 })
-                .collect();
-            Row { records, groups }
+                .collect::<StackVec8<_>>();
+            let chunk_len = records.len() + 1;
+            let mut repeated_records = vec![Unknown; chunk_len * 5 - 1];
+            for i in 0..5 {
+                repeated_records[chunk_len * i..chunk_len * i + records.len()].copy_from_slice(records);
+            }
+            let mut repeated_groups = Groups::new();
+            for _ in 0..5 {
+                repeated_groups.extend_from_slice_copy(&groups[..]);
+            }
+            // let repeated_groups = repeat(groups).take(5).flatten().collect::<Vec<_>>();
+            Row {
+                n_records: records.len(),
+                repeated_records,
+                n_groups: groups.len(),
+                repeated_groups,
+            }
         })
 }
 
@@ -125,24 +138,16 @@ pub fn day12_parallel(input: &[u8]) -> (u64, u64) {
     // Reuse allocations
     thread_local! {
         static DP: RefCell<Vec<u64>> = RefCell::new(vec![]);
-        static REPEATED_RECORDS: RefCell<Vec<Record>> = RefCell::new(vec![]);
-        static REPEATED_GROUPS: RefCell<Vec<UGroup>> = RefCell::new(vec![]);
     }
     parse(&input)
         .collect::<Vec<_>>()
         .into_par_iter()
         .map(|row| {
             DP.with_borrow_mut(|dp| {
-                let part1 = solve(&row.records, &row.groups, dp);
-                let part2 = REPEATED_RECORDS.with_borrow_mut(|repeated_records| {
-                    REPEATED_GROUPS.with_borrow_mut(|repeated_groups| {
-                        solve(
-                            repeat_records(&row.records, repeated_records),
-                            repeat_groups(&row.groups, repeated_groups),
-                            dp,
-                        )
-                    })
-                });
+                let (part1_records, part1_groups) = row.part1();
+                let part1 = solve(part1_records, part1_groups, dp);
+                let (part2_records, part2_groups) = row.part2();
+                let part2 = solve(part2_records, part2_groups, dp);
                 (part1, part2)
             })
         })
@@ -151,39 +156,28 @@ pub fn day12_parallel(input: &[u8]) -> (u64, u64) {
 
 pub fn day12_serial(input: &[u8]) -> (u64, u64) {
     let mut dp = vec![];
-    let mut repeated_records = vec![];
-    let mut repeated_groups = vec![];
     let mut part1 = 0;
     let mut part2 = 0;
     for row in parse(&input) {
-        part1 += solve(&row.records, &row.groups, &mut dp);
-        part2 += solve(
-            repeat_records(&row.records, &mut repeated_records),
-            repeat_groups(&row.groups, &mut repeated_groups),
-            &mut dp,
-        )
+        let (part1_records, part1_groups) = row.part1();
+        part1 += solve(part1_records, part1_groups, &mut dp);
+        let (part2_records, part2_groups) = row.part2();
+        part2 += solve(part2_records, part2_groups, &mut dp)
     }
     (part1, part2)
 }
 
-fn repeat_records<'a>(records: &[Record], buf: &'a mut Vec<Record>) -> &'a mut Vec<Record> {
-    buf.resize((records.len() + 1) * 5 - 1, Unknown);
-    for i in 0..5 {
-        let offset = (records.len() + 1) * i;
-        buf[offset..offset + records.len()].copy_from_slice(records);
-        if i != 4 {
-            buf[offset + records.len()] = Unknown;
-        }
+impl Row {
+    fn part1(&self) -> (&[Record], &[UGroup]) {
+        (
+            &self.repeated_records[..self.n_records],
+            &self.repeated_groups[..self.n_groups],
+        )
     }
-    buf
-}
 
-fn repeat_groups<'a>(groups: &[UGroup], buf: &'a mut Vec<UGroup>) -> &'a mut Vec<UGroup> {
-    buf.resize(groups.len() * 5, 0);
-    for i in 0..5 {
-        buf[groups.len() * i..groups.len() * i + groups.len()].copy_from_slice(groups);
+    fn part2(&self) -> (&[Record], &[UGroup]) {
+        (&self.repeated_records[..], &self.repeated_groups[..])
     }
-    buf
 }
 
 impl<'a> DP<'a> {
@@ -239,19 +233,15 @@ mod tests {
     fn solve_one(input: &str) -> u64 {
         let mut dp_buf = vec![];
         let row = parse(input.as_bytes()).next().unwrap();
-        solve(row.records, &row.groups, &mut dp_buf)
+        let (records, groups) = row.part1();
+        solve(records, groups, &mut dp_buf)
     }
 
     fn solve_two(input: &str) -> u64 {
         let mut dp_buf = vec![];
-        let mut repeated_records = vec![];
-        let mut repeated_groups = vec![];
         let row = parse(input.as_bytes()).next().unwrap();
-        solve(
-            &repeat_records(row.records, &mut repeated_records),
-            &repeat_groups(&row.groups, &mut repeated_groups),
-            &mut dp_buf,
-        )
+        let (records, groups) = row.part2();
+        solve(records, groups, &mut dp_buf)
     }
 
     #[test]
