@@ -8,6 +8,11 @@ edition = "2021"
 [dependencies]
 rayon = "1.8.0"
 stack-vec = "0.1.0"
+criterion = "0.4"
 
 [profile.release]
 lto = "fat"
+
+[[bench]]
+name = "benchmark"
+harness = false
