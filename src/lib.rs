@@ -4,6 +4,7 @@ use std::{
     cell::RefCell,
     mem,
     ops::{Index, IndexMut},
+    str,
 };
 
 use self::Record::*;
@@ -103,14 +104,7 @@ fn parse<'a>(input: &'a [u8]) -> impl Iterator<Item = Row<'a>> {
             let records: &[Record] = unsafe { mem::transmute(&line[..space_idx]) };
             let groups = line[space_idx + 1..]
                 .split(|&c| c == b',')
-                .map(|digits| {
-                    (if digits.len() == 1 {
-                        digits[0] - b'0'
-                    } else {
-                        (digits[0] - b'0') * 10 + digits[1] - b'0'
-                    })
-                    .into()
-                })
+                .map(|digits| unsafe { str::from_utf8_unchecked(digits) }.parse::<UGroup>().unwrap())
                 .collect::<StackVec8<_>>();
             Row { records, groups }
         })
